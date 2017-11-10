@@ -2,7 +2,8 @@
 /* Written by Andy Sheen 2017 */
 
 /*~~~~~~~~~~TO DO~~~~~~~~~~*/
-/* - Add Button and switch names
+/* - Make shutter button take photo on letting go of button
+   - Add Button and switch names
    - Add power down function
    - Add animation to text
    - Add question display
@@ -18,9 +19,15 @@
 #include <Adafruit_SSD1306.h>
 
 #define OLED_RESET 4
-#define PWR_PIN 10
+#define PWR_PIN 2
+#define CAM_PWR 10
 #define RIGHT_BUTTON 8
 #define LEFT_BUTTON 9
+#define CAM_RX  12
+#define CAM_TX  13
+#define SHUTTER 3
+#define LED 11
+
 
 Adafruit_SSD1306 display(OLED_RESET);
 
@@ -28,7 +35,7 @@ boolean LEFT_DEBOUNCE = false;
 boolean RIGHT_DEBOUNCE = false;
 
 long buttonCheck;
-int buttonInterval = 50;
+int buttonInterval = 20;
 
 boolean newQuestion = false;
 
@@ -39,11 +46,11 @@ long offDuration = 2000;
 
 int currentQuestion = 0;
 //TO FIX
-int numQuestions = 15;
+int numQuestions = 16;
 
-char* inputBuffer;
+char inputBuffer[64];
 bool flag = false;
-SoftwareSerial mySerial(3, 2); // RX, TX
+SoftwareSerial mySerial(CAM_RX, CAM_TX); // RX, TX
 
 void setup() {
 
@@ -52,13 +59,15 @@ void setup() {
   digitalWrite(PWR_PIN, 1);
 
   //CAM PIN
-  pinMode(5, OUTPUT);
+  pinMode(CAM_PWR, OUTPUT);
 
   //Buttons
-  pinMode(7, INPUT_PULLUP);
+  pinMode(SHUTTER, INPUT_PULLUP);
   pinMode(RIGHT_BUTTON, INPUT_PULLUP);
   pinMode(LEFT_BUTTON, INPUT_PULLUP);
-  pinMode(6, INPUT_PULLUP);
+
+  //LED
+  pinMode(LED, OUTPUT);
 
   Serial.begin(57600);
   while (!Serial) {
@@ -69,18 +78,17 @@ void setup() {
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3D (for the 128x64)
   display.clearDisplay();
 
-  digitalWrite(5, 1);
+  digitalWrite(CAM_PWR, 1);
   delay(1000);
   initCam();
   indexQs();
   getQuestion(currentQuestion);
   delay(500);
-  digitalWrite(5, 0);
+  digitalWrite(CAM_PWR, 0);
 
 }
 
 void loop() { // run over and over
-  checkPwr();
   checkButtons();
   checkQuestions();
   display.clearDisplay();
@@ -91,11 +99,16 @@ void loop() { // run over and over
   display.display();
   delay(1);
 
-  if (digitalRead(6) == 1 && flag == true) {
-    flag = false;
+
+  if (digitalRead(3) == 0 && flag == false) {
+    flag = true;
+    checkPwr();
   }
-  if (digitalRead(6) == 0 && flag == false) {
-    digitalWrite(5, 1);
+  if (digitalRead(3) == 1 && flag == true) {
+    checkPwr();
+    analogWrite(LED, 60);
+    flag = false;
+    digitalWrite(10, 1);
     delay(1000);
     initCam();
     display.clearDisplay();
@@ -107,30 +120,36 @@ void loop() { // run over and over
     display.display();
     delay(1);
     display.display();
-
-    flag = true;
     capturePic();
-    digitalWrite(5, 0);
+    for (int i = 60; i < 255; i++) {
+      analogWrite(LED, i);
+      delay(1);
+    }
+    analogWrite(LED, 5);
+    digitalWrite(10, 0);
   }
 }
 
 void getQuestion(uint8_t question) {
   // q + question num return Qs
-  mySerial.write('q');
-  mySerial.write(question);
+  mySerial.write(0x71);
+  mySerial.write((byte)question);
   mySerial.write(0x0D);
   mySerial.write(0x0A);
 
 
   //prints out the Question.... TO FIX
   while (mySerial.available() < 63) {
+    delay(1);
   }
-  inputBuffer = new char[64];
+  for(int i = 0; i < 64 ; i++){
+    inputBuffer[i] = 0;
+  }
   for (int i = 0; i < 64; i++) {
     inputBuffer[i] = (char)mySerial.read();
   }
   Serial.println(inputBuffer);
-  for (int i = 0 ; i < 100; i++) {
+  while (mySerial.available() > 0) {
     mySerial.read();
   }
 
@@ -148,24 +167,29 @@ void initCam() {
     delay(1);
   }
   //Wait for 'INI'
-  for (int i = 0 ; i < 3; i++) {
+  for (int i = 0 ; i < 4; i++) {
     Serial.print((char)mySerial.read());
+  }
+  while (mySerial.available() > 0) {
+    mySerial.read();
   }
   Serial.println();
 }
 
 void indexQs() {
   //Index Questions
-  mySerial.write('~');
-  mySerial.write('+');
+  mySerial.write(0x7E);
+  mySerial.write(0x2B);
   mySerial.write(0x0D);
   mySerial.write(0x0A);
   while (mySerial.available() < 2) {
     delay(1);
   }
-  //Returns number of Qs + new line
-  for (int i = 0 ; i < 3; i++) {
-    Serial.print(mySerial.read());
+  numQuestions = (int)mySerial.read();
+  Serial.print("NUMBER OF QS: ");
+  Serial.println(numQuestions);
+  while (mySerial.available() > 0) {
+    mySerial.read();
   }
   Serial.println();
   delay(100);
@@ -174,7 +198,7 @@ void indexQs() {
 
 void capturePic() {
   //Take picture
-  mySerial.write('!');
+  mySerial.write(0x21);
   mySerial.write((byte)currentQuestion);
   mySerial.write(0x0D);
   mySerial.write(0x0A);
@@ -207,7 +231,7 @@ void capturePic() {
 }
 
 void checkPwr() {
-  int butRead = digitalRead(7);
+  int butRead = digitalRead(SHUTTER);
   if (butRead == 0 && buttonHeld == false) {
     Serial.println("BUTTON ON");
     buttonHeldCount = millis();
@@ -226,6 +250,8 @@ void checkPwr() {
       pwrdwn = true;
       while (1) {
         if (pwrdwn == true) {
+          display.clearDisplay();
+          display.display();
           digitalWrite(PWR_PIN, 0);
         }
       }
@@ -274,13 +300,13 @@ void checkButtons() {
 void checkQuestions() {
   if (newQuestion) {
     newQuestion = false;
-    digitalWrite(5, 1);
+    digitalWrite(10, 1);
     delay(1000);
     initCam();
     indexQs();
     getQuestion(currentQuestion);
     delay(500);
-    digitalWrite(5, 0);
+    digitalWrite(10, 0);
   }
 }
 
