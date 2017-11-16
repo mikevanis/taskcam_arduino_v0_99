@@ -37,6 +37,8 @@ boolean RIGHT_DEBOUNCE = false;
 long buttonCheck;
 int buttonInterval = 20;
 
+long sleepMillis = 0;
+long sleepTime = 20000;
 boolean newQuestion = false;
 
 boolean buttonHeld = false;
@@ -47,6 +49,8 @@ long offDuration = 2000;
 int currentQuestion = 0;
 //TO FIX
 int numQuestions = 16;
+int questionTicks = 0;
+
 
 char inputBuffer[64];
 bool flag = false;
@@ -89,28 +93,26 @@ void setup() {
 }
 
 void loop() { // run over and over
+  sleepCheck();
   checkButtons();
   checkQuestions();
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);
-  display.setCursor(10, 0);
+  display.setCursor(0, 0);
   display.println(inputBuffer);
   display.display();
   delay(1);
 
-
+  checkPwr();
   if (digitalRead(3) == 0 && flag == false) {
     flag = true;
-    checkPwr();
+    // checkPwr();
   }
   if (digitalRead(3) == 1 && flag == true) {
-    checkPwr();
+    // checkPwr();
     analogWrite(LED, 60);
     flag = false;
-    digitalWrite(10, 1);
-    delay(1000);
-    initCam();
     display.clearDisplay();
     display.setTextSize(2);
     display.setTextColor(WHITE);
@@ -120,12 +122,17 @@ void loop() { // run over and over
     display.display();
     delay(1);
     display.display();
+    digitalWrite(10, 1);
+    delay(1000);
+    initCam();
+    indexQs();
     capturePic();
     for (int i = 60; i < 255; i++) {
       analogWrite(LED, i);
       delay(1);
     }
     analogWrite(LED, 5);
+    // getQuestion(currentQuestion);
     digitalWrite(10, 0);
   }
 }
@@ -142,13 +149,24 @@ void getQuestion(uint8_t question) {
   while (mySerial.available() < 63) {
     delay(1);
   }
-  for(int i = 0; i < 64 ; i++){
+  for (int i = 0; i < 64 ; i++) {
     inputBuffer[i] = 0;
   }
+  questionTicks = 0;
   for (int i = 0; i < 64; i++) {
-    inputBuffer[i] = (char)mySerial.read();
+    //Add to question tick
+    if ((char)mySerial.peek() == '#') {
+      questionTicks++;
+      mySerial.read();
+    } else {
+      inputBuffer[i - questionTicks] = (char)mySerial.read();
+    }
   }
   Serial.println(inputBuffer);
+  Serial.println();
+  Serial.print("NUM OF TICKS: ");
+  Serial.print(questionTicks);
+  Serial.println();
   while (mySerial.available() > 0) {
     mySerial.read();
   }
@@ -162,6 +180,7 @@ void initCam() {
   mySerial.write('i');
   mySerial.write(0x0D);
   mySerial.write(0x0A);
+  delay(100);
   while (mySerial.available() < 2) {
     //WAIT
     delay(1);
@@ -192,14 +211,14 @@ void indexQs() {
     mySerial.read();
   }
   Serial.println();
-  delay(100);
+  delay(300);
 }
 
 
 void capturePic() {
   //Take picture
   mySerial.write(0x21);
-  mySerial.write((byte)currentQuestion);
+  mySerial.write((uint8_t)currentQuestion);
   mySerial.write(0x0D);
   mySerial.write(0x0A);
   delay(2000);
@@ -233,12 +252,14 @@ void capturePic() {
 void checkPwr() {
   int butRead = digitalRead(SHUTTER);
   if (butRead == 0 && buttonHeld == false) {
+    sleepMillis = millis();
     Serial.println("BUTTON ON");
     buttonHeldCount = millis();
     buttonHeld = true;
   }
   if (buttonHeld == true) {
     if (millis() - buttonHeldCount > offDuration) {
+      Serial.println("SHUTDOWN");
       display.clearDisplay();
       display.setTextSize(2);
       display.setTextColor(WHITE);
@@ -247,6 +268,7 @@ void checkPwr() {
       display.println("Shutting down");
       display.display();
       display.display();
+      delay(300);
       pwrdwn = true;
       while (1) {
         if (pwrdwn == true) {
@@ -259,6 +281,7 @@ void checkPwr() {
   }
   if (buttonHeld == true && butRead == 1) {
     buttonHeld = false;
+    Serial.println("OFF");
   }
 }
 
@@ -268,6 +291,7 @@ void checkButtons() {
     buttonCheck = millis();
 
     if (digitalRead(LEFT_BUTTON) == LOW && LEFT_DEBOUNCE == false) {
+      sleepMillis = millis();
       LEFT_DEBOUNCE = true;
       currentQuestion--;
       newQuestion = true;
@@ -277,6 +301,7 @@ void checkButtons() {
     }
 
     if (digitalRead(RIGHT_BUTTON) == LOW && RIGHT_DEBOUNCE == false) {
+      sleepMillis = millis();
       RIGHT_DEBOUNCE = true;
       currentQuestion++;
       newQuestion = true;
@@ -307,6 +332,13 @@ void checkQuestions() {
     getQuestion(currentQuestion);
     delay(500);
     digitalWrite(10, 0);
+  }
+}
+
+void sleepCheck() {
+  if (millis() - sleepMillis > sleepTime) {
+    digitalWrite(CAM_PWR, 0);
+    digitalWrite(PWR_PIN, 0);
   }
 }
 
