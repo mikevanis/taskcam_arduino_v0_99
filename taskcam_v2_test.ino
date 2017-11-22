@@ -49,7 +49,7 @@ long offDuration = 2000;
 int currentQuestion = 0;
 //TO FIX
 int numQuestions = 16;
-int questionTicks = 0;
+byte questionTicks = 0;
 
 
 char inputBuffer[64];
@@ -82,8 +82,9 @@ void setup() {
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3D (for the 128x64)
   display.clearDisplay();
 
+
   digitalWrite(CAM_PWR, 1);
-  delay(1000);
+  startUpAni();
   initCam();
   indexQs();
   getQuestion(currentQuestion);
@@ -97,10 +98,12 @@ void loop() { // run over and over
   checkButtons();
   checkQuestions();
   display.clearDisplay();
+  //display.setTextWrap(false);
   display.setTextSize(1);
   display.setTextColor(WHITE);
-  display.setCursor(0, 0);
+  display.setCursor(0, 10);
   display.println(inputBuffer);
+  applyTicks();
   display.display();
   delay(1);
 
@@ -114,7 +117,7 @@ void loop() { // run over and over
     analogWrite(LED, 60);
     flag = false;
     display.clearDisplay();
-    display.setTextSize(2);
+    display.setTextSize(3);
     display.setTextColor(WHITE);
     display.setCursor(10, 0);
     display.clearDisplay();
@@ -131,7 +134,7 @@ void loop() { // run over and over
       analogWrite(LED, i);
       delay(1);
     }
-    analogWrite(LED, 5);
+    analogWrite(LED, 0);
     // getQuestion(currentQuestion);
     digitalWrite(10, 0);
   }
@@ -226,26 +229,31 @@ void capturePic() {
     delay(1);
   }
   //Ack for when picture finished saving... needs fixing as hang over from oversized Q in buffer
-  if (mySerial.read() == 0x06) {
+  byte in = mySerial.read();
+  Serial.println((int)in);
+  if (in == 0x06) {
     display.clearDisplay();
     display.setTextSize(2);
     display.setTextColor(WHITE);
     display.setCursor(10, 0);
     display.clearDisplay();
-    display.println("saved!");
+    display.println("ERROR");
     display.display();
     delay(1000);
     display.display();
   } else {
     display.clearDisplay();
-    display.setTextSize(2);
+    display.setTextSize(3);
     display.setTextColor(WHITE);
     display.setCursor(10, 0);
     display.clearDisplay();
-    display.println("ERROR!");
+    display.println("       SAVED");
     display.display();
     delay(1000);
     display.display();
+  }
+  while (mySerial.available() > 0) {
+    mySerial.read();
   }
 }
 
@@ -330,6 +338,7 @@ void checkQuestions() {
     initCam();
     indexQs();
     getQuestion(currentQuestion);
+   // getNumTicks(currentQuestion);
     delay(500);
     digitalWrite(10, 0);
   }
@@ -337,8 +346,61 @@ void checkQuestions() {
 
 void sleepCheck() {
   if (millis() - sleepMillis > sleepTime) {
+    display.setTextSize(2);
+    display.setTextColor(WHITE);
+    display.setCursor(0, 20);
+    display.clearDisplay();
+    display.println("Sleep mode");
+    display.display();
+    delay(300);
+    display.clearDisplay();
+    display.display();
     digitalWrite(CAM_PWR, 0);
     digitalWrite(PWR_PIN, 0);
   }
+}
+
+void startUpAni() {
+  display.setTextSize(2);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 20);
+  display.clearDisplay();
+  display.println("TaskCam   v0.99");
+  display.display();
+  delay(1);
+
+  display.startscrollright(0x00, 0x0F);
+  delay(1700);
+  display.stopscroll();
+}
+
+void tick(int x, int y) {
+  display.drawLine(x, y - 3, x + 3, y, WHITE);
+  display.drawLine(x + 3, y, x + 3 + 6, y - 6, WHITE);
+}
+
+void applyTicks() {
+ byte tickNum = questionTicks;
+  if (tickNum) {
+    for (int i = 0; i < tickNum; i++) {
+      tick(5 + (i * 12), 8);
+    }
+  }
+}
+
+byte getNumTicks(byte question) {
+   while (mySerial.available() > 0) {
+    mySerial.read();
+   }
+  mySerial.write(0x22);
+  mySerial.write((byte)question);
+  mySerial.write(0x0D);
+  mySerial.write(0x0A);
+  while (mySerial.available() < 0) {
+    delay(1);
+  }
+  //Ack for when picture finished saving... needs fixing as hang over from oversized Q in buffer
+  byte in = mySerial.read();
+  questionTicks = in;
 }
 

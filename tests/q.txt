@@ -1,8 +1,8 @@
-1. Your Name
-2. Who lives in your home
-3. The view from your kitchen window
-4. Most comfortable place
-5. A possession that is your best friend
+1. Your   Name
+2. Who    lives in  your home
+3. The    view from your kitchen window
+4. Most   comfortable place
+5. A      possessionthat is your best friend
 6. Something from your childhood
 7. Where you keep your odds and ends 
 8. A social gathering
