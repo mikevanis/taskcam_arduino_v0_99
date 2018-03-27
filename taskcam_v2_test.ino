@@ -1,15 +1,9 @@
 /* Taskcam v2 software for IRS Taskcam v2 Camera Shield + IRS Taskcam Camera Module */
-/* Written by Andy Sheen 2017 */
+/* Written by Andy Sheen 2017/2018 */
 
 /*~~~~~~~~~~TO DO~~~~~~~~~~*/
-/* - Make shutter button take photo on letting go of button
-   - Add Button and switch names
-   - Add power down function
-   - Add animation to text
-   - Add question display
+/*
    - Add photo capture animation
-   - Remove Adafruit splash (sorry Lady Ada...)
-   - Add Photo hash tally
    - Add Contrast/Light/FX menu (bonus)
 */
 #include <SoftwareSerial.h>
@@ -17,6 +11,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include "bitmaps.h"
 
 #define OLED_RESET 4
 #define PWR_PIN 2
@@ -45,6 +40,10 @@ boolean buttonHeld = false;
 boolean pwrdwn = false;
 long buttonHeldCount;
 long offDuration = 2000;
+
+bool buttonPressed = false;
+long questionButton = 0;
+bool pickingQuestion = false;
 
 int currentQuestion = 0;
 //TO FIX
@@ -79,10 +78,8 @@ void setup() {
   //Camera Module Interface
   mySerial.begin(38400);
 
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3D (for the 128x64)
-  display.clearDisplay();
-
-
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3D);  // initialize with the I2C addr 0x3D (for the 128x64)
+  display.clearDisplay(); 
   digitalWrite(CAM_PWR, 1);
   startUpAni();
   initCam();
@@ -94,6 +91,7 @@ void setup() {
 }
 
 void loop() { // run over and over
+ 
   sleepCheck();
   checkButtons();
   checkQuestions();
@@ -101,7 +99,7 @@ void loop() { // run over and over
   //display.setTextWrap(false);
   display.setTextSize(1);
   display.setTextColor(WHITE);
-  display.setCursor(0, 10);
+  display.setCursor(0, 25);
   display.println(inputBuffer);
   applyTicks();
   display.display();
@@ -119,37 +117,48 @@ void loop() { // run over and over
     display.clearDisplay();
     display.setTextSize(3);
     display.setTextColor(WHITE);
-    display.setCursor(10, 0);
+    display.setCursor(10, 10);
     display.clearDisplay();
-    display.println("taking photo");
+   // display.println("taking photo");
     display.display();
     delay(1);
     display.display();
     digitalWrite(10, 1);
-    delay(1000);
+    drawCam();
+    delay(300);
     initCam();
+    delay(500);
     indexQs();
+    delay(500);
     capturePic();
+    delay(1500);
     for (int i = 60; i < 255; i++) {
       analogWrite(LED, i);
       delay(1);
     }
+    delay(10);
+    getQuestion(currentQuestion);
     analogWrite(LED, 0);
     // getQuestion(currentQuestion);
     digitalWrite(10, 0);
   }
+  
 }
 
 void getQuestion(uint8_t question) {
+  while(mySerial.available() > 0){
+    mySerial.read();
+  }
   // q + question num return Qs
   mySerial.write(0x71);
   mySerial.write((byte)question);
   mySerial.write(0x0D);
   mySerial.write(0x0A);
-
+ 
 
   //prints out the Question.... TO FIX
   while (mySerial.available() < 63) {
+    Serial.println(mySerial.available());
     delay(1);
   }
   for (int i = 0; i < 64 ; i++) {
@@ -165,6 +174,7 @@ void getQuestion(uint8_t question) {
       inputBuffer[i - questionTicks] = (char)mySerial.read();
     }
   }
+
   Serial.println(inputBuffer);
   Serial.println();
   Serial.print("NUM OF TICKS: ");
@@ -173,6 +183,9 @@ void getQuestion(uint8_t question) {
   while (mySerial.available() > 0) {
     mySerial.read();
   }
+
+
+
 
 }
 
@@ -220,11 +233,14 @@ void indexQs() {
 
 void capturePic() {
   //Take picture
+  while (mySerial.available() > 0) {
+    mySerial.read();
+  }
   mySerial.write(0x21);
   mySerial.write((uint8_t)currentQuestion);
   mySerial.write(0x0D);
   mySerial.write(0x0A);
-  delay(2000);
+  delay(500);
   while (mySerial.available() < 0) {
     delay(1);
   }
@@ -237,9 +253,9 @@ void capturePic() {
     display.setTextColor(WHITE);
     display.setCursor(10, 0);
     display.clearDisplay();
-    display.println("ERROR");
+    display.println("       ERROR");
     display.display();
-    delay(1000);
+    delay(600);
     display.display();
   } else {
     display.clearDisplay();
@@ -249,7 +265,7 @@ void capturePic() {
     display.clearDisplay();
     display.println("       SAVED");
     display.display();
-    delay(1000);
+    delay(600);
     display.display();
   }
   while (mySerial.available() > 0) {
@@ -303,9 +319,11 @@ void checkButtons() {
       LEFT_DEBOUNCE = true;
       currentQuestion--;
       newQuestion = true;
+      analogWrite(LED, 65);
     }
     if (digitalRead(LEFT_BUTTON) == HIGH && LEFT_DEBOUNCE == true) {
       LEFT_DEBOUNCE = false;
+      analogWrite(LED, 0);
     }
 
     if (digitalRead(RIGHT_BUTTON) == LOW && RIGHT_DEBOUNCE == false) {
@@ -313,34 +331,34 @@ void checkButtons() {
       RIGHT_DEBOUNCE = true;
       currentQuestion++;
       newQuestion = true;
+      analogWrite(LED, 65);
     }
     if (digitalRead(RIGHT_BUTTON) == HIGH && RIGHT_DEBOUNCE == true) {
       RIGHT_DEBOUNCE = false;
+      analogWrite(LED, 0);
     }
 
-    if (currentQuestion >= numQuestions) {
+    if (currentQuestion == numQuestions) {
       currentQuestion = 0;
     }
 
     if (currentQuestion < 0) {
-      currentQuestion = numQuestions;
+      currentQuestion = numQuestions-1;
     }
 
   }
-
 }
 
 void checkQuestions() {
   if (newQuestion) {
     newQuestion = false;
-    digitalWrite(10, 1);
-    delay(1000);
+    digitalWrite(CAM_PWR, 1);
+    loading(500);
     initCam();
     indexQs();
     getQuestion(currentQuestion);
-   // getNumTicks(currentQuestion);
     delay(500);
-    digitalWrite(10, 0);
+    digitalWrite(CAM_PWR, 0);
   }
 }
 
@@ -365,13 +383,11 @@ void startUpAni() {
   display.setTextColor(WHITE);
   display.setCursor(0, 20);
   display.clearDisplay();
-  display.println("TaskCam   v0.99");
+  display.drawBitmap(0,0,logo16_glcd_bmp,128,64,1);
   display.display();
-  delay(1);
-
-  display.startscrollright(0x00, 0x0F);
   delay(1700);
-  display.stopscroll();
+  Serial.println("OI");
+
 }
 
 void tick(int x, int y) {
@@ -380,7 +396,7 @@ void tick(int x, int y) {
 }
 
 void applyTicks() {
- byte tickNum = questionTicks;
+  byte tickNum = questionTicks;
   if (tickNum) {
     for (int i = 0; i < tickNum; i++) {
       tick(5 + (i * 12), 8);
@@ -389,9 +405,9 @@ void applyTicks() {
 }
 
 byte getNumTicks(byte question) {
-   while (mySerial.available() > 0) {
+  while (mySerial.available() > 0) {
     mySerial.read();
-   }
+  }
   mySerial.write(0x22);
   mySerial.write((byte)question);
   mySerial.write(0x0D);
@@ -399,8 +415,38 @@ byte getNumTicks(byte question) {
   while (mySerial.available() < 0) {
     delay(1);
   }
-  //Ack for when picture finished saving... needs fixing as hang over from oversized Q in buffer
   byte in = mySerial.read();
   questionTicks = in;
+}
+
+void loading(int timeIn) {
+  for (int i = 0 ; i < 12; i ++) {
+    display.fillRect(11 * i, 54, 5, 10, WHITE);
+    delay(timeIn / 12);
+    display.display();
+  }
+}
+
+void displayQuestionNum() {
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(WHITE);
+  display.setCursor(10, 0);
+  display.println(currentQuestion);
+  display.display();
+}
+
+void drawCam() {
+  uint8_t color = 1;
+
+  display.drawBitmap(32,8,cam_logo,64,49,1);
+  display.display();
+  delay(500);
+  display.invertDisplay(1);
+  display.display();
+  delay(100);
+  display.invertDisplay(0);
+  display.display();
+  delay(100);
 }
 
