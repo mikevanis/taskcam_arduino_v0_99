@@ -11,6 +11,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+//#include <Fonts/FreeSans9pt7b.h>
 #include "bitmaps.h"
 
 #define OLED_RESET 4
@@ -25,7 +26,6 @@
 
 
 Adafruit_SSD1306 display(OLED_RESET);
-
 boolean LEFT_DEBOUNCE = false;
 boolean RIGHT_DEBOUNCE = false;
 
@@ -33,7 +33,7 @@ long buttonCheck;
 int buttonInterval = 20;
 
 long sleepMillis = 0;
-long sleepTime = 20000;
+long sleepTime = 40000;
 boolean newQuestion = false;
 
 boolean buttonHeld = false;
@@ -49,9 +49,15 @@ int currentQuestion = 0;
 //TO FIX
 int numQuestions = 16;
 byte questionTicks = 0;
+byte currQlength;
 
+long prevMillis;
+long currentMillis;
+int SPEED_SCROLLING = 50;
+int scrollingPos;
 
 char inputBuffer[64];
+byte questionLength = 0;
 bool flag = false;
 SoftwareSerial mySerial(CAM_RX, CAM_TX); // RX, TX
 
@@ -72,14 +78,14 @@ void setup() {
   //LED
   pinMode(LED, OUTPUT);
 
-  Serial.begin(57600);
+  Serial.begin(38400);
   while (!Serial) {
   }
   //Camera Module Interface
   mySerial.begin(38400);
-
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3D);  // initialize with the I2C addr 0x3D (for the 128x64)
-  display.clearDisplay(); 
+  //display.setFont(&FreeSans9pt7b);
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3D (for the 128x64)
+  display.clearDisplay();
   digitalWrite(CAM_PWR, 1);
   startUpAni();
   initCam();
@@ -91,18 +97,20 @@ void setup() {
 }
 
 void loop() { // run over and over
- 
+
   sleepCheck();
   checkButtons();
   checkQuestions();
-  display.clearDisplay();
-  //display.setTextWrap(false);
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setCursor(0, 25);
-  display.println(inputBuffer);
-  applyTicks();
-  display.display();
+ // display.clearDisplay();
+ // display.setTextWrap(false);
+  //display.setTextSize(3);
+  //display.setTextColor(WHITE);
+  //display.setCursor(0, 25);
+  //display.println(inputBuffer);
+  //applyTicks();
+  //display.display();
+  //DEV//
+  scrollText();
   delay(1);
 
   checkPwr();
@@ -115,11 +123,11 @@ void loop() { // run over and over
     analogWrite(LED, 60);
     flag = false;
     display.clearDisplay();
-    display.setTextSize(3);
+    display.setTextSize(2);
     display.setTextColor(WHITE);
     display.setCursor(10, 10);
     display.clearDisplay();
-   // display.println("taking photo");
+    // display.println("taking photo");
     display.display();
     delay(1);
     display.display();
@@ -142,11 +150,11 @@ void loop() { // run over and over
     // getQuestion(currentQuestion);
     digitalWrite(10, 0);
   }
-  
+
 }
 
 void getQuestion(uint8_t question) {
-  while(mySerial.available() > 0){
+  while (mySerial.available() > 0) {
     mySerial.read();
   }
   // q + question num return Qs
@@ -154,7 +162,7 @@ void getQuestion(uint8_t question) {
   mySerial.write((byte)question);
   mySerial.write(0x0D);
   mySerial.write(0x0A);
- 
+
 
   //prints out the Question.... TO FIX
   while (mySerial.available() < 63) {
@@ -165,20 +173,32 @@ void getQuestion(uint8_t question) {
     inputBuffer[i] = 0;
   }
   questionTicks = 0;
-  for (int i = 0; i < 64; i++) {
-    //Add to question tick
-    if ((char)mySerial.peek() == '#') {
-      questionTicks++;
-      mySerial.read();
-    } else {
-      inputBuffer[i - questionTicks] = (char)mySerial.read();
+  while ((char)mySerial.peek() == '#') {
+    questionTicks++;
+    mySerial.read();
+  }
+  char lengthRead = 64 - questionTicks;
+  for (int i = 0; i < lengthRead; i++) {
+    inputBuffer[i] = (char)mySerial.read();
+  }
+
+  for (uint8_t j = 63; j > 0; j--) {
+    if (inputBuffer[j] != 0 && inputBuffer[j] != -1 ) {
+      currQlength = j;
+      Serial.println("PRINTING");
+      Serial.println((int)inputBuffer[j]);
+      goto printTime;
     }
   }
 
+printTime:
   Serial.println(inputBuffer);
   Serial.println();
   Serial.print("NUM OF TICKS: ");
   Serial.print(questionTicks);
+  Serial.println();
+  Serial.print("Q LENGTH: ");
+  Serial.print(currQlength);
   Serial.println();
   while (mySerial.available() > 0) {
     mySerial.read();
@@ -249,7 +269,7 @@ void capturePic() {
   Serial.println((int)in);
   if (in == 0x06) {
     display.clearDisplay();
-    display.setTextSize(2);
+    display.setTextSize(1);
     display.setTextColor(WHITE);
     display.setCursor(10, 0);
     display.clearDisplay();
@@ -259,11 +279,11 @@ void capturePic() {
     display.display();
   } else {
     display.clearDisplay();
-    display.setTextSize(3);
+    display.setTextSize(1);
     display.setTextColor(WHITE);
-    display.setCursor(10, 0);
+    display.setCursor(20, 0);
     display.clearDisplay();
-    display.println("       SAVED");
+    display.println("SAVED");
     display.display();
     delay(600);
     display.display();
@@ -343,7 +363,7 @@ void checkButtons() {
     }
 
     if (currentQuestion < 0) {
-      currentQuestion = numQuestions-1;
+      currentQuestion = numQuestions - 1;
     }
 
   }
@@ -357,17 +377,19 @@ void checkQuestions() {
     initCam();
     indexQs();
     getQuestion(currentQuestion);
-    delay(500);
+    scrollingPos = 0;
+    delay(100);
     digitalWrite(CAM_PWR, 0);
   }
 }
 
 void sleepCheck() {
   if (millis() - sleepMillis > sleepTime) {
-    display.setTextSize(2);
+    display.setTextSize(1);
     display.setTextColor(WHITE);
-    display.setCursor(0, 20);
+    display.setCursor(0, 32);
     display.clearDisplay();
+    //Maybe use PWR icon?
     display.println("Sleep mode");
     display.display();
     delay(300);
@@ -383,7 +405,7 @@ void startUpAni() {
   display.setTextColor(WHITE);
   display.setCursor(0, 20);
   display.clearDisplay();
-  display.drawBitmap(0,0,logo16_glcd_bmp,128,64,1);
+  display.drawBitmap(0, 0, logo16_glcd_bmp, 128, 64, 1);
   display.display();
   delay(1700);
   Serial.println("OI");
@@ -439,7 +461,7 @@ void displayQuestionNum() {
 void drawCam() {
   uint8_t color = 1;
 
-  display.drawBitmap(32,8,cam_logo,64,49,1);
+  display.drawBitmap(32, 8, cam_logo, 64, 49, 1);
   display.display();
   delay(500);
   display.invertDisplay(1);
@@ -448,5 +470,27 @@ void drawCam() {
   display.invertDisplay(0);
   display.display();
   delay(100);
+}
+
+void scrollText() {
+  currentMillis = millis();
+  if (currentMillis - prevMillis >= SPEED_SCROLLING) {
+    //Serial.println();
+    if (scrollingPos < currQlength * 18 * -1) scrollingPos = 128;
+    display.clearDisplay();
+    display.setTextSize(3);
+    display.setTextColor(WHITE);
+    display.setCursor(scrollingPos, 26);
+    display.setTextWrap(false);
+    display.print(inputBuffer);
+    //tick(5, 8);
+    applyTicks();
+    display.display();
+
+    scrollingPos -= 3;
+
+    prevMillis = currentMillis;
+
+  }
 }
 
